@@ -1,0 +1,147 @@
+:root {
+    /* Catppuccin Mocha Palette */
+    --base: #1e1e2e;
+    --mantle: #181825;
+    --text: #cdd6f4;
+    --subtext0: #a6adc8;
+    --lavender: #b4befe;
+    --blue: #89b4fa;
+    --red: #f38ba8;
+    --green: #a6e3a1;
+    --peach: #fab387;
+
+    /* Spacing */
+    --radius: 12px;
+    --padding: 1.5rem;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background-color: var(--base);
+    color: var(--text);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    line-height: 1.5;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    padding: 2rem;
+}
+
+.container {
+    background: var(--mantle);
+    border-radius: var(--radius);
+    padding: var(--padding);
+    width: 100%;
+    max-width: 480px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.lamp-header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.lamp-icon {
+    font-size: 6rem;
+    color: var(--subtext0);
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.lamp-icon.active {
+    color: var(--lavender);
+    filter: drop-shadow(0 0 12px rgba(180, 190, 254, 0.4));
+}
+
+.controls {
+    display: grid;
+    gap: 1.5rem;
+}
+
+.slider-container {
+    background: rgba(205, 214, 244, 0.08);
+    padding: 1rem;
+    border-radius: var(--radius);
+}
+
+.slider {
+    -webkit-appearance: none;
+    width: 100%;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--base);
+    outline: none;
+    margin: 1rem 0;
+}
+
+.slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--lavender);
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+
+.slider::-webkit-slider-thumb:hover {
+    transform: scale(1.1);
+}
+
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--subtext0);
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--red);
+}
+
+.status-dot.connected {
+    background: var(--green);
+}
+
+button {
+    background: var(--lavender);
+    color: var(--base);
+    border: none;
+    padding: 1rem;
+    border-radius: var(--radius);
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+button:hover {
+    background: var(--blue);
+    transform: translateY(-2px);
+}
+
+.brightness-value {
+    font-size: 2rem;
+    font-weight: bold;
+    color: var(--lavender);
+    text-align: center;
+    margin: 1rem 0;
+}
+
+@media (max-width: 480px) {
+    body {
+        padding: 1rem;
+    }
+    
+    .container {
+        border-radius: 0;
+    }
+}

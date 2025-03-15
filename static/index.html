@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Catppuccin Lamp</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <input type="color" id="colorPicker" class="form-control">
+</head>
+<body>
+    <div class="container">
+        <div class="lamp-header">
+            <div class="lamp-icon" id="lampIcon">💡</div>
+            <div class="brightness-value" id="brightnessValue">0%</div>
+        </div>
+
+        <div class="controls">
+            <button id="toggleBtn">Turn On</button>
+            
+            <div class="slider-container">
+                <input type="range" 
+                       id="brightness" 
+                       class="slider" 
+                       min="0" 
+                       max="100">
+            </div>
+
+            <div class="status-indicator">
+                <div class="status-dot" id="statusDot"></div>
+                <span id="connectionStatus">Connecting...</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
