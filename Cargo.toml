@@ -1,3 +1,4 @@
+
 [package]
 name = "axum-ws-server"
 version = "0.1.0"
@@ -15,3 +16,13 @@ uuid = {version = "1.16.0", features = ["v4"]}
 tower-http ={ version = "0.6.2", features = ["fs"] }
 chrono = "0.4.40"
 anyhow = "1.0.97"
+dashmap = "6.1.0"
+validator = { version = "0.20.0", features = ["derive"] }
+async-trait = "0.1.88"
+thiserror = "2.0.12"
+config = "0.15.11"
+metrics = "0.24.1"
+metrics-exporter-prometheus = "0.16.2"
+utoipa-swagger-ui = { version = "9.0.0", features = ["axum"] }
+inventory = {version = "0.3.20"}
+utoipa = { version = "5.3.1", features = ["axum_extras"] }

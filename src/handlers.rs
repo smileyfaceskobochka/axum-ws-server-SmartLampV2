@@ -1,15 +1,16 @@
+// handlers.rs
 use axum::{
     extract::{ws::{Message, WebSocket}, State, WebSocketUpgrade},
     response::IntoResponse,
 };
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, RwLock};
 use tracing::{error, info};
 use uuid::Uuid;
 use crate::{
-    models::{AppState, WsMessage},
-    utils::{cleanup_client_connection, cleanup_device_connection} // Исправлены имена функций
+    models::{AppState, WsMessage, DeviceEntry, DeviceStatus},
+    utils::{cleanup_client_connection, cleanup_device_connection}
 };
 
 pub async fn handle_device_ws_upgrade(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -36,8 +37,17 @@ async fn handle_device(socket: WebSocket, state: Arc<AppState>) {
                         if sender.send(Message::Text(serde_json::to_string(&response).unwrap().into())).await.is_err() {
                             return;
                         }
+                        
                         let (tx, _) = broadcast::channel(100);
-                        state.devices.lock().await.insert(id.clone(), tx);
+                        state.devices.insert(id.clone(), DeviceEntry {
+                            tx: tx.clone(),
+                            status: Arc::new(RwLock::new(DeviceStatus {
+                                device_id: id.clone(),
+                                power: false,
+                                brightness: 0,
+                                color: [0, 0, 0],
+                            })),
+                        });
                         device_id = Some(id);
                         break;
                     }
@@ -56,8 +66,13 @@ async fn handle_device(socket: WebSocket, state: Arc<AppState>) {
 
     let Some(id) = device_id else { return };
 
-    let mut rx = state.devices.lock().await.get(&id).unwrap().subscribe();
-    let status_task = tokio::spawn({
+    let device_entry = match state.devices.get(&id) {
+        Some(entry) => entry,
+        None => return,
+    };
+
+    let mut rx = device_entry.tx.subscribe();
+    let mut status_task = tokio::spawn({
         let mut sender = sender;
         async move {
             while let Ok(msg) = rx.recv().await {
@@ -68,15 +83,14 @@ async fn handle_device(socket: WebSocket, state: Arc<AppState>) {
         }
     });
 
-    let command_task = tokio::spawn({
+    let mut command_task = tokio::spawn({
         let state = Arc::clone(&state);
         async move {
             while let Some(Ok(msg)) = receiver.next().await {
                 if let Ok(text) = msg.to_text() {
                     if let Ok(WsMessage::StatusUpdate(status)) = serde_json::from_str(text) {
-                        let clients = state.clients.lock().await;
-                        for client in clients.values() {
-                            let _ = client.send(WsMessage::StatusUpdate(status.clone()));
+                        for client in state.clients.iter() {
+                            let _ = client.value().send(WsMessage::StatusUpdate(status.clone()));
                         }
                     }
                 }
@@ -84,11 +98,10 @@ async fn handle_device(socket: WebSocket, state: Arc<AppState>) {
         }
     });
 
-    tokio::pin!(status_task, command_task);
     tokio::select! {
-        _ = &mut status_task => command_task.abort(),
-        _ = &mut command_task => status_task.abort(),
-    };
+    _ = &mut status_task => command_task.abort(),
+    _ = &mut command_task => status_task.abort(),
+}
 
     cleanup_device_connection(&id, &state).await;
 }
@@ -97,9 +110,9 @@ async fn handle_client(socket: WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = socket.split();
     let client_id = Uuid::new_v4();
     let (tx, mut rx) = broadcast::channel(100);
-    state.clients.lock().await.insert(client_id, tx.clone());
+    state.clients.insert(client_id, tx.clone());
 
-    let send_task = tokio::spawn(async move {
+    let mut send_task = tokio::spawn(async move {
         while let Ok(msg) = rx.recv().await {
             if sender.send(Message::Text(serde_json::to_string(&msg).unwrap().into())).await.is_err() {
                 break;
@@ -107,21 +120,23 @@ async fn handle_client(socket: WebSocket, state: Arc<AppState>) {
         }
     });
 
-    let recv_task = tokio::spawn({
+    let mut recv_task = tokio::spawn({
         let state = Arc::clone(&state);
         async move {
             while let Some(Ok(msg)) = receiver.next().await {
                 if let Ok(text) = msg.to_text() {
                     if let Ok(command) = serde_json::from_str::<WsMessage>(text) {
-                        let devices = state.devices.lock().await;
                         match command {
-                            WsMessage::SetPower { ref device_id, .. } 
+                            WsMessage::SetPower { ref device_id, .. }
                             | WsMessage::SetBrightness { ref device_id, .. }
                             | WsMessage::SetColor { ref device_id, .. } => {
-                                if let Some(tx) = devices.get(device_id) {
-                                    let _ = tx.send(command);
+                                if let Some(device) = state.devices.get(device_id) {
+                                    let _ = device.tx.send(command);
                                 } else {
-                                    let error = WsMessage::Error { message: "Device not found".into(), code: 404 };
+                                    let error = WsMessage::Error {
+                                        message: "Device not found".into(),
+                                        code: 404,
+                                    };
                                     let _ = tx.send(error);
                                 }
                             }
@@ -133,7 +148,6 @@ async fn handle_client(socket: WebSocket, state: Arc<AppState>) {
         }
     });
 
-    tokio::pin!(send_task, recv_task);
     tokio::select! {
         _ = &mut send_task => recv_task.abort(),
         _ = &mut recv_task => send_task.abort(),
