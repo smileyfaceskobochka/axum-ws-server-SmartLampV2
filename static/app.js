@@ -1,6 +1,6 @@
 class LampController {
     constructor() {
-        this.ws = new WebSocket('ws://192.168.3.4:8000/ws/client');
+        this.ws = new WebSocket('ws://0.0.0.0:8000/ws/client');
         this.initElements();
         this.initEvents();
         this.initWebSocketHandlers();

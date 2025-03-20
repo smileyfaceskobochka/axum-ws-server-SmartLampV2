@@ -3,7 +3,6 @@ mod commands;
 mod config;
 mod devices;
 mod events;
-mod metrics;
 mod docs;
 mod error;
 mod handlers;
@@ -24,18 +23,12 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
     
     let state = Arc::new(AppState::new());
-    
-    if settings.metrics.enabled {
-        metrics::setup_metrics(settings.metrics.port);
-        state.metrics_enabled.store(true, std::sync::atomic::Ordering::Relaxed);
-    }
 
     let app = Router::new()
         .route("/", get(|| async { Redirect::permanent("/static/") }))
         .route("/ws/device", get(handle_device_ws_upgrade))
         .route("/ws/client", get(handle_client_ws_upgrade))
         .merge(SwaggerUi::new("/docs").url("/api-doc/openapi.json", docs::ApiDoc::openapi()))
-        .route("/metrics", get(metrics_handler))
         .nest_service("/static", ServeDir::new("static"))
         .with_state(state.clone());
 
@@ -50,8 +43,4 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Server error: {}", e))?;
 
     Ok(())
-}
-
-async fn metrics_handler() -> String {
-    metrics::encode()
 }

@@ -5,19 +5,11 @@ use config::Config;
 #[derive(Debug, Deserialize)]
 pub struct Settings {
     pub server: ServerSettings,
-    pub metrics: MetricsSettings,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ServerSettings {
     pub address: String,
-    pub max_connections: u32,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct MetricsSettings {
-    pub enabled: bool,
-    pub port: u16,
 }
 
 impl Settings {

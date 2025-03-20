@@ -2,7 +2,3 @@
 [server]
 address = "0.0.0.0:8000"
 max_connections = 1000
-
-[metrics]
-enabled = true
-port = 9090
