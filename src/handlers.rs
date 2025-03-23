@@ -15,7 +15,6 @@ use crate::{
 
 pub async fn handle_device_ws_upgrade(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {
     info!("Device connection attempt");
-    metrics::counter!("device.connections").increment(1);
     ws.on_upgrade(|socket| handle_device(socket, state))
 }
 

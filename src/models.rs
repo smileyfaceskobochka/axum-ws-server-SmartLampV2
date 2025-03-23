@@ -5,7 +5,6 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use uuid::Uuid;
 use validator::{Validate, ValidationErrors};
-use std::sync::atomic::AtomicBool;
 use utoipa::ToSchema;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -63,7 +62,6 @@ impl WsMessage {
 pub struct AppState {
     pub devices: DashMap<String, DeviceEntry>,
     pub clients: DashMap<Uuid, broadcast::Sender<WsMessage>>,
-    pub metrics_enabled: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -71,7 +69,6 @@ impl AppState {
         Self {
             devices: DashMap::new(),
             clients: DashMap::new(),
-            metrics_enabled: Arc::new(AtomicBool::new(false)),
         }
     }
 }
