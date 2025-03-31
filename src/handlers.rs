@@ -1,62 +1,101 @@
 // handlers.rs
+use crate::{
+    models::{AppState, DeviceEntry, DeviceStatus, WsMessage},
+    utils,
+};
 use axum::{
-    extract::{ws::{Message, WebSocket}, State, WebSocketUpgrade},
+    extract::{
+        State, WebSocketUpgrade,
+        ws::{Message, WebSocket},
+    },
     response::IntoResponse,
 };
 use futures_util::{SinkExt, StreamExt};
 use std::sync::Arc;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, Mutex};
+use tokio::time::Instant;
 use tracing::{error, info};
 use uuid::Uuid;
-use crate::{
-    models::{AppState, WsMessage, DeviceEntry, DeviceStatus},
-    utils::{cleanup_client_connection, cleanup_device_connection}
-};
 
-pub async fn handle_device_ws_upgrade(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn handle_device_ws_upgrade(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
     info!("Device connection attempt");
     ws.on_upgrade(|socket| handle_device(socket, state))
 }
 
-pub async fn handle_client_ws_upgrade(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn handle_client_ws_upgrade(
+    ws: WebSocketUpgrade,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
     info!("Client connection attempt");
     ws.on_upgrade(|socket| handle_client(socket, state))
 }
 
 async fn handle_device(socket: WebSocket, state: Arc<AppState>) {
-    let (mut sender, mut receiver) = socket.split();
+    let (sender, mut receiver) = socket.split();
+    let sender = Arc::new(Mutex::new(sender)); // Wrap sender in Arc and Mutex
     let mut device_id = None;
+
+    // Check if device is already registered
+    if let Some(existing_entry) = state.devices.get(device_id.as_ref().unwrap_or(&String::new())) {
+        // Send status request to existing device
+        let status_request = WsMessage::StatusRequest { device_id: existing_entry.status.lock().await.device_id.clone() };
+        if let Err(_) = existing_entry.tx.send(status_request) {
+            // Remove unresponsive device
+            state.devices.remove(existing_entry.status.lock().await.device_id.as_str());
+        }
+    }
 
     while let Some(Ok(msg)) = receiver.next().await {
         match msg.to_text() {
-            Ok(text) => {
-                match serde_json::from_str::<WsMessage>(text) {
-                    Ok(WsMessage::DeviceRegistration { device_id: id }) => {
-                        info!(%id, "Device registered");
-                        let response = WsMessage::DeviceRegistered { device_id: id.clone() };
-                        if sender.send(Message::Text(serde_json::to_string(&response).unwrap().into())).await.is_err() {
-                            return;
-                        }
-                        
-                        let (tx, _) = broadcast::channel(100);
-                        state.devices.insert(id.clone(), DeviceEntry {
-                            tx: tx.clone(),
-                            status: Arc::new(RwLock::new(DeviceStatus {
-                                device_id: id.clone(),
-                                power: false,
-                                brightness: 0,
-                                color: [0, 0, 0],
-                            })),
-                        });
-                        device_id = Some(id);
-                        break;
+            Ok(text) => match serde_json::from_str::<WsMessage>(text) {
+                Ok(WsMessage::DeviceRegistration { device_id: id }) => {
+                    info!(%id, "Device registered");
+                    let response = WsMessage::DeviceRegistered {
+                        device_id: id.clone(),
+                    };
+                    let mut sender_lock = sender.lock().await;
+                    if sender_lock
+                        .send(Message::Text(
+                            serde_json::to_string(&response).unwrap().into(),
+                        ))
+                        .await
+                        .is_err()
+                    {
+                        return;
                     }
-                    _ => {
-                        let error = WsMessage::Error { message: "Invalid registration".into(), code: 400 };
-                        let _ = sender.send(Message::Text(serde_json::to_string(&error).unwrap().into())).await;
-                    }
+                    let (tx, _) = broadcast::channel(100);
+                    let initial_status = DeviceStatus {
+                        device_id: id.clone(),
+                        power: false,
+                        brightness: 0,
+                        color: [0, 0, 0],
+                        auto_brightness: false,
+                        pos: [0, 0, 0, 0],
+                        auto_pos: false,
+                    };
+                    let entry = DeviceEntry {
+                        tx: tx.clone(),
+                        status: Arc::new(Mutex::new(initial_status)),
+                        last_seen: Arc::new(Mutex::new(Instant::now())),
+                    };
+                    state.devices.insert(id.clone(), entry);
+                    device_id = Some(id);
+                    break;
                 }
-            }
+                _ => {
+                    let error = WsMessage::Error {
+                        message: "Invalid registration".into(),
+                        code: 400,
+                    };
+                    let mut sender_lock = sender.lock().await;
+                    let _ = sender_lock
+                        .send(Message::Text(serde_json::to_string(&error).unwrap().into()))
+                        .await;
+                }
+            },
             Err(e) => {
                 error!("Message parse error: {}", e);
                 return;
@@ -64,63 +103,72 @@ async fn handle_device(socket: WebSocket, state: Arc<AppState>) {
         }
     }
 
-    let Some(id) = device_id else { return };
+    if let Some(id) = device_id {
+        let entry = state.devices.get(&id).unwrap();
+        let mut rx = entry.tx.subscribe();
 
-    let device_entry = match state.devices.get(&id) {
-        Some(entry) => entry,
-        None => return,
-    };
-
-    let mut rx = device_entry.tx.subscribe();
-    let mut status_task = tokio::spawn({
-        let mut sender = sender;
-        async move {
+        let sender_clone = Arc::clone(&sender);
+        let status_task = tokio::spawn(async move {
+            let mut sender_lock = sender_clone.lock().await;
             while let Ok(msg) = rx.recv().await {
-                if sender.send(Message::Text(serde_json::to_string(&msg).unwrap().into())).await.is_err() {
+                if sender_lock
+                    .send(Message::Text(serde_json::to_string(&msg).unwrap().into()))
+                    .await
+                    .is_err()
+                {
                     break;
                 }
             }
-        }
-    });
+        });
 
-    let mut command_task = tokio::spawn({
-        let state = Arc::clone(&state);
-        async move {
+        let state_clone = Arc::clone(&state);
+        let command_task = tokio::spawn(async move {
             while let Some(Ok(msg)) = receiver.next().await {
                 if let Ok(text) = msg.to_text() {
                     if let Ok(WsMessage::StatusUpdate(status)) = serde_json::from_str(text) {
-                        for client in state.clients.iter() {
+                        let clients = state_clone.clients.iter().collect::<Vec<_>>();
+                        for client in clients {
                             let _ = client.value().send(WsMessage::StatusUpdate(status.clone()));
                         }
                     }
                 }
             }
+        });
+
+        tokio::pin!(status_task, command_task);
+        tokio::select! {
+            _ = &mut status_task => command_task.abort(),
+            _ = &mut command_task => status_task.abort(),
+        };
+
+        if let Some(id) = device_id {
+            utils::cleanup_device_connection(&id, &state).await;
         }
-    });
-
-    tokio::select! {
-    _ = &mut status_task => command_task.abort(),
-    _ = &mut command_task => status_task.abort(),
-}
-
-    cleanup_device_connection(&id, &state).await;
+    }
 }
 
 async fn handle_client(socket: WebSocket, state: Arc<AppState>) {
-    let (mut sender, mut receiver) = socket.split();
+    let (sender, mut receiver) = socket.split();
+    let sender = Arc::new(Mutex::new(sender)); // Wrap sender in Arc and Mutex
     let client_id = Uuid::new_v4();
-    let (tx, mut rx) = broadcast::channel(100);
+    let (tx, rx) = broadcast::channel(100);
     state.clients.insert(client_id, tx.clone());
 
-    let mut send_task = tokio::spawn(async move {
+    let send_task = tokio::spawn(async move {
+        let mut rx = rx;
         while let Ok(msg) = rx.recv().await {
-            if sender.send(Message::Text(serde_json::to_string(&msg).unwrap().into())).await.is_err() {
+            let mut sender_lock = sender.lock().await;
+            if sender_lock
+                .send(Message::Text(serde_json::to_string(&msg).unwrap().into()))
+                .await
+                .is_err()
+            {
                 break;
             }
         }
     });
 
-    let mut recv_task = tokio::spawn({
+    let recv_task = tokio::spawn({
         let state = Arc::clone(&state);
         async move {
             while let Some(Ok(msg)) = receiver.next().await {
@@ -129,9 +177,12 @@ async fn handle_client(socket: WebSocket, state: Arc<AppState>) {
                         match command {
                             WsMessage::SetPower { ref device_id, .. }
                             | WsMessage::SetBrightness { ref device_id, .. }
-                            | WsMessage::SetColor { ref device_id, .. } => {
-                                if let Some(device) = state.devices.get(device_id) {
-                                    let _ = device.tx.send(command);
+                            | WsMessage::SetColor { ref device_id, .. }
+                            | WsMessage::SetAutoBrightness { ref device_id, .. }
+                            | WsMessage::SetPosition { ref device_id, .. }
+                            | WsMessage::SetAutoPosition { ref device_id, .. } => {
+                                if let Some(entry) = state.devices.get(device_id) {
+                                    let _ = entry.tx.send(command);
                                 } else {
                                     let error = WsMessage::Error {
                                         message: "Device not found".into(),
@@ -148,10 +199,11 @@ async fn handle_client(socket: WebSocket, state: Arc<AppState>) {
         }
     });
 
+    tokio::pin!(send_task, recv_task);
     tokio::select! {
         _ = &mut send_task => recv_task.abort(),
         _ = &mut recv_task => send_task.abort(),
     };
 
-    cleanup_client_connection(client_id, &state).await;
+    utils::cleanup_client_connection(client_id, &state).await;
 }

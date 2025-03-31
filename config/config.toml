@@ -1,4 +1,0 @@
-# ..config/config.toml
-[server]
-address = "0.0.0.0:8000"
-max_connections = 1000
