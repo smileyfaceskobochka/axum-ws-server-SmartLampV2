@@ -20,50 +20,23 @@ pub struct DeviceStatus {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum WsMessage {
-    DeviceRegistration {
-        device_id: String,
-    },
-    DeviceRegistered {
-        device_id: String,
-    },
+    DeviceRegistration { device_id: String },
+    DeviceRegistered { device_id: String },
     StatusUpdate(DeviceStatus),
-    SetPower {
-        device_id: String,
-        power: bool,
-    },
-    SetBrightness {
-        device_id: String,
-        brightness: u8,
-    },
-    SetColor {
-        device_id: String,
-        color: [u8; 3],
-    },
-    SetAutoBrightness {
-        device_id: String,
-        auto_brightness: bool,
-    },
-    SetPosition {
-        device_id: String,
-        pos: [u8; 4],
-    },
-    SetAutoPosition {
-        device_id: String,
-        auto_pos: bool,
-    },
-    StatusRequest {
-        device_id: String,
-    },
-    Error {
-        message: String,
-        code: u16,
-    },
+    SetPower { device_id: String, power: bool },
+    SetBrightness { device_id: String, brightness: u8 },
+    SetColor { device_id: String, color: [u8; 3] },
+    SetAutoBrightness { device_id: String, auto_brightness: bool },
+    SetPosition { device_id: String, pos: [u8; 4] },
+    SetAutoPosition { device_id: String, auto_pos: bool },
+    StatusRequest { device_id: String },
+    Error { message: String, code: u16 },
 }
 
 pub struct DeviceEntry {
     pub tx: broadcast::Sender<WsMessage>,
     pub status: Arc<Mutex<DeviceStatus>>,
-    pub last_seen: Arc<Mutex<Instant>>,
+    pub last_activity: Arc<Mutex<Instant>>,
 }
 
 pub struct AppState {

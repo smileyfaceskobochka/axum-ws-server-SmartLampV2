@@ -21,10 +21,10 @@ async fn main() -> anyhow::Result<()> {
 
     let state = Arc::new(AppState::new());
 
-    // Start device status checker
+    // Таймаут проверки каждые 5 секунд
     let state_clone = Arc::clone(&state);
     tokio::spawn(async move {
-        let mut interval = interval(Duration::from_secs(30));
+        let mut interval = interval(Duration::from_secs(10));
         loop {
             interval.tick().await;
             utils::check_device_statuses(state_clone.clone()).await;

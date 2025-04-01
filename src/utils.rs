@@ -31,7 +31,6 @@ pub async fn check_device_statuses(state: Arc<AppState>) {
         }
     }
 
-    // Remove unresponsive devices
     for device_id in devices_to_remove {
         state.devices.remove(&device_id);
         tracing::warn!("Device {} unresponsive, removed", device_id);
